@@ -1,82 +1,112 @@
-ServerSync
-==========
+# ServerSyncPlus
 
-Bundling the dll
-----------------
+**ServerSync as a shared dependency, plus tools for mod authors and server admins.**
 
-You need to ensure the dll is available to your mod.
+ServerSyncPlus is a public fork of **[ServerSync](https://github.com/blaxxun-boop/ServerSync) by blaxxun**, the config-sync library hundreds of Valheim mods are built on. Instead of every mod bundling its own copy, mods depend on this one package. Mods that still bundle their own ServerSync keep working next to it.
 
-Including the dll is best done via ILRepack (https://github.com/ravibpatel/ILRepack.Lib.MSBuild.Task). You can load this package (ILRepack.Lib.MSBuild.Task) from NuGet.
+> ### Credit where it's due
+> The synchronization engine in this package is **blaxxun's ServerSync** (MIT, © 2021 Tykea). That covers config syncing, locking, admin exemption, version checks, fragmentation, compression and the login buffering. ServerSyncPlus keeps that code nearly as-is in [`src/Upstream/ConfigSync.cs`](src/Upstream/ConfigSync.cs): about ten small marked edits, so upstream fixes merge cleanly. Everything ServerSyncPlus adds lives separately in [`src/Plus/`](src/Plus).
+> If you like ServerSync, thank blaxxun first.
 
-Then create a file ILRepack.targets in your project folder. File content:
-```
-<?xml version="1.0" encoding="utf-8"?>
-<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-    <Target Name="ILRepacker" AfterTargets="Build">
-        <ItemGroup>
-            <InputAssemblies Include="$(TargetPath)" />
-            <InputAssemblies Include="$(OutputPath)\ServerSync.dll" />
-        </ItemGroup>
-        <ILRepack Parallel="true" DebugInfo="true" Internalize="true" InputAssemblies="@(InputAssemblies)" OutputFile="$(TargetPath)" TargetKind="SameAsPrimaryAssembly" LibraryPath="$(OutputPath)" />
-    </Target>
-</Project>
-```
+---
 
-Using the ServerSync
---------------------
+## For players
 
-Declare a variable:
+Nothing to do. Your mod manager installs ServerSyncPlus automatically when a mod needs it. Keep it installed while any enabled mod depends on it.
 
-`ServerSync.ConfigSync configSync = new ServerSync.ConfigSync("my.mod.guid") { DisplayName = "My Mod Name", CurrentVersion = "1.2.3", MinimumRequiredVersion = "1.2.0" };`
+ServerSyncPlus:
+- does **not** change mods that bundle their own ServerSync; they keep using their own copy
+- never overwrites your `.cfg` files with server values; your own values come back when you disconnect
+- lets you refuse **forced sync** (server admins forcing settings of mods that have no sync): `Allow server to force settings = false`
 
-All of DisplayName, CurrentVersion and MinimumRequiredVersion are optional.
-If CurrentVersion is specified, then the user will see a warning in their BepInEx log if the server version does not match the client version.
-If also MinimumRequiredVersion is specified and the client has an older version than the servers MinimumRequiredVersion, the client will be immediately disconnected and see an error message, explaining why.
-To display a friendly name for your mod in the error messages, specify DisplayName, otherwise the primary identifier will be used.
-Also note that the primary identifier (I propose using the GUID, "my.mod.guid") should never be changed (changing it will break backwards compatibility completely).
+## For server admins
 
-There are two public methods on the ServerSync.ConfigSync class:
+Install it on the **server and every client**. The settings are in `BepInEx/config/DrakeMods.ServerSyncPlus.cfg`:
 
-- `AddConfigEntry<T>(ConfigEntry<T> configEntry)`
+| Section | Setting | Default | What it does |
+|---|---|---|---|
+| 1 - Network | Config send timeout (seconds) | `30` | How long the server keeps sending configs to a joining player before giving up. Raise it for big modpacks or slow connections (upstream: fixed 30). |
+| 2 - Files | Reload config files on change | `true` | Edit a mod's `.cfg` on the server and connected players get the new values immediately. |
+| 3 - Forced Sync (server) | Mods | *(empty)* | Plugin GUIDs whose settings the server forces on players, for mods **with no sync of their own**. `*` = every eligible mod. |
+| 3 - Forced Sync (server) | Exclude | *(empty)* | Settings never forced: `GUID`, `GUID:Section` or `GUID:Section:Key`, with `*` as a wildcard. |
+| 3 - Forced Sync (server) | Sync keybinds | `false` | When off, key bindings stay as each player set them. |
+| 4 - Forced Sync (client) | Allow server to force settings | `true` | Players can opt out. |
+| 5 - Diagnostics | Log ServerSync copy report | `true` | Lists every ServerSync copy in the game at startup. |
 
-  Registers a BepInEx ConfigEntry to be synchronized.
+**Forced sync** works on mods that never had server sync, without changing them. Some limits:
+- Only settings that ServerSync can transport are eligible: numbers, booleans, text, enums and simple structs. Key-combination settings (`KeyboardShortcut`) never are.
+- Settings already synced by ServerSync, Jotunn or Conditional Config Sync are skipped.
+- A mod that reads a setting only once at startup won't notice the server's value until the next launch. Test each mod you add.
+- Forced settings are always locked. Server admins can still change them from their own config manager.
 
-- `AddLockingConfigEntry<T>(ConfigEntry<T> lockingConfig) where T : IConvertible`
-  
-  Registers a BepInEx ConfigEntry to be synchronized, whose value determines whether the config is locked. If the value is zero when converted to integer, the config is not locked. Otherwise it is locked.
-  This method must be called at most once. If not called at all, the config will never be locked.
+**Console** (F5): `ssp` shows which mods are synced and whether server values are active. `ssp copies` lists every ServerSync copy in the game. `ssp reload` reloads config files now.
 
-Useful properties:
+## For mod developers
 
-- `static bool ProcessingServerUpdate`
+### Switching from embedded ServerSync: no code changes
 
-  The mod is receiving and applying configs from the server. Used internally to avoid config writing loops.
+Your `ServerSync` code compiles unchanged: same namespace, same classes, same methods.
+1. Remove `ServerSync.dll` from your `ILRepack.targets`.
+2. Reference `ServerSyncPlus.dll` with `Private="false"`. Never ILRepack it; if you do, it logs an error and falls back to behaving like an embedded copy.
+3. Add `[BepInDependency(ServerSyncPlusPlugin.Guid)]` to your plugin class.
+4. Add `DrakeMods-ServerSyncPlus-0.9.0` to the `dependencies` in your `manifest.json`.
 
-- `bool IsSourceOfTruth`
+Players with the old version of your mod (embedded ServerSync) and the new one (ServerSyncPlus) can still play together. The network format is identical.
 
-  Whether the local config is currently being used. False if a remote config is currently applied.
+**ItemManager / PieceManager / SkillManager users:** those helpers look for ServerSync inside your own DLL. ServerSyncPlus answers that lookup for mods that depend on it, so their settings keep syncing after you switch.
 
-Additionally, there is a class `ServerSync.CustomSyncedValue<T>(ConfigSync, string Identifier, T value = default)` to synchronize arbitrary data (more precisely: all data which Valheims native serialization supports).
-This class registers itself to the passed ConfigSync instance upon instantiation.
-It provides a Value property and a ValueChanged event handler.
-The Identifier must be unique for the given ConfigSync instance.
+### Optional extras (ServerSyncPlus only)
 
+```csharp
+private ConfigSync configSync = null!;
 
-Handy config function
----------------------
-
-To avoid manually adding each config entry to the ConfigSync instance, I propose to add a simple wrapper `config()` (with the same signature as `Config.Bind()`) to your UnityBasePlugin class:
-
-```
-ConfigEntry<T> config<T>(string group, string name, T value, ConfigDescription description, bool synchronizedSetting = true)
+private void Awake()
 {
-    ConfigEntry<T> configEntry = Config.Bind(group, name, value, description);
+    configSync = ConfigSync.ForPlugin(this);                             // Name/DisplayName/versions from your [BepInPlugin]
+    Config.BindServerLock(configSync);                                    // the usual "Lock Configuration" setting
+    var mult  = Config.BindSynced(configSync, "General", "Multiplier", 2, "Stack multiplier.");   // replaces the copy-pasted config() helper
+    var clock = Config.BindSynced(configSync, "Client", "Show clock", true, "Visual only.", synchronized: false);
 
-    SyncedConfigEntry<T> syncedConfigEntry = configSync.AddConfigEntry(configEntry);
-    syncedConfigEntry.SynchronizedConfig = synchronizedSetting;
+    var recipes = new SyncedFile(configSync, "recipes", Path.Combine(Paths.ConfigPath, "my.mod.recipes.yml"));
+    recipes.Changed += () => Reload(recipes.Content);                     // server content while connected, local file otherwise
 
-    return configEntry;
+    var tables = new SyncedDirectory(configSync, "tables", Path.Combine(Paths.ConfigPath, "my.mod"), "*.yml");
 }
-
-ConfigEntry<T> config<T>(string group, string name, T value, string description, bool synchronizedSetting = true) => config(group, name, value, new ConfigDescription(description), synchronizedSetting);
 ```
+
+| API | What it replaces |
+|---|---|
+| `ConfigSync.ForPlugin(plugin, minimumRequiredVersion, modRequired)` | Hand-filling `Name`, `DisplayName`, `CurrentVersion`, `MinimumRequiredVersion` |
+| `Config.BindSynced(...)` / `Config.BindServerLock(...)` | The `config()` wrapper from the ServerSync README. It adds " [Synced with Server]" to descriptions. |
+| `SyncedFile` / `SyncedDirectory` | `CustomSyncedValue<string>` + `FileSystemWatcher` + reload boilerplate for YAML/JSON files |
+| *(automatic)* config file watching | The `.cfg` watcher most mods copy around |
+
+Using these ties your mod to ServerSyncPlus; everything else stays portable to embedded ServerSync.
+
+A complete example mod is in [`consumer-example/`](consumer-example).
+
+## Compatibility
+
+| Next to… | Result |
+|---|---|
+| Mods that bundle ServerSync (hidden or public) | Coexist. Each copy handles its own mods. |
+| Loose `ServerSync.dll` files, and the deprecated 2024 `DrakeMods-ServerSync` | No conflict with ServerSyncPlus: it is a different DLL (`ServerSyncPlus.dll`). Remove the 2024 package anyway; it predates Valheim 1.0. |
+| Jotunn, Conditional Config Sync | Independent; forced sync skips what they handle. |
+
+Why this works, and why the 2024 attempt crashed, is in [docs/DESIGN.md](docs/DESIGN.md).
+
+## Building
+
+```bash
+.github/scripts/stage-game-refs.sh ci_valheim        # reference assemblies, if you don't point at a Valheim install
+dotnet build src/ServerSyncPlus.csproj -c Release -p:GamePath="$PWD/ci_valheim"
+dotnet test tests
+```
+
+Releases: push a tag `vX.Y.Z` that matches the version in `src/ServerSyncPlus.csproj`, `src/Plus/Plugin.cs`, `package/manifest.json` and `CHANGELOG.md`. CI builds, attaches the zip to a GitHub release and publishes to Hexium.
+
+## Credits & license
+
+- **ServerSync**: blaxxun ([blaxxun-boop/ServerSync](https://github.com/blaxxun-boop/ServerSync)), MIT, © 2021 Tykea. See [LICENSE-upstream-ServerSync.txt](LICENSE-upstream-ServerSync.txt).
+- **ServerSyncPlus additions**: Drakethos / DrakeMods, MIT. See [LICENSE](LICENSE).
+- Icon: generated procedurally from [`branding/make_icon.py`](branding/make_icon.py).

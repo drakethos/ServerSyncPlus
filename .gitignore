@@ -1,4 +1,9 @@
-bin
-obj
-.idea
-.vs
+bin/
+obj/
+out/
+out-example/
+ci_valheim/
+*.user
+DrakeMods-ServerSyncPlus-*/
+DrakeMods-ServerSyncPlus-*.zip
+node_modules/

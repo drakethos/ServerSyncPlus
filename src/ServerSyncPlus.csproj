@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    ServerSyncPlus: a public fork of blaxxun-boop/ServerSync, shipped as a dependency.
+
+    Key decision: the ASSEMBLY is named ServerSyncPlus, not ServerSync.
+    Loose ServerSync.dll files shipped by other mods (and the deprecated 2024
+    DrakeMods-ServerSync package) all claim the identity "ServerSync, Version=1.0.0.0".
+    Mono binds references by that name, so two of them in one profile means whichever
+    loads first wins and the other mod gets MissingMethod/TypeLoad errors.
+    The NAMESPACE stays ServerSync, so consumer source code does not change.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>ServerSyncPlus</AssemblyName>
+    <RootNamespace>ServerSync</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <!-- Bump AssemblyVersion on every release (upstream never leaves 1.0.0.0). -->
+    <Version>0.9.0</Version>
+    <AssemblyVersion>0.9.0.0</AssemblyVersion>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+    <Authors>Drakethos (DrakeMods); original ServerSync by blaxxun</Authors>
+    <Copyright>ServerSync (c) 2021 Tykea / blaxxun; ServerSyncPlus additions (c) 2026 DrakeMods</Copyright>
+    <!-- Set on the command line or in Directory.Build.props.user: -p:GamePath="C:\...\Valheim" -->
+    <GamePath Condition="'$(GamePath)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Valheim</GamePath>
+    <BepInExPath Condition="'$(BepInExPath)' == ''">$(GamePath)\BepInEx</BepInExPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="0Harmony" HintPath="$(BepInExPath)\core\0Harmony.dll" Private="false" />
+    <Reference Include="BepInEx" HintPath="$(BepInExPath)\core\BepInEx.dll" Private="false" />
+    <Reference Include="assembly_utils" HintPath="$(GamePath)\valheim_Data\Managed\assembly_utils.dll" Private="false" />
+    <Reference Include="assembly_valheim" HintPath="$(GamePath)\valheim_Data\Managed\assembly_valheim.dll" Private="false" />
+    <Reference Include="UnityEngine" HintPath="$(GamePath)\valheim_Data\Managed\UnityEngine.dll" Private="false" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(GamePath)\valheim_Data\Managed\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="Unity.TextMeshPro" HintPath="$(GamePath)\valheim_Data\Managed\Unity.TextMeshPro.dll" Private="false" />
+    <Reference Include="UnityEngine.UI" HintPath="$(GamePath)\valheim_Data\Managed\UnityEngine.UI.dll" Private="false" />
+  </ItemGroup>
+</Project>

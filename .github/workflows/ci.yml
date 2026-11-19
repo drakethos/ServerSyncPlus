@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Unit tests (game-independent logic)
+        run: dotnet test tests -c Release
+
+      - name: Stage Valheim reference assemblies
+        run: .github/scripts/stage-game-refs.sh ci_valheim
+
+      - name: Build ServerSyncPlus against real game references
+        run: dotnet build src/ServerSyncPlus.csproj -c Release -p:GamePath="$PWD/ci_valheim" -o out
+
+      - name: Build example consumer
+        run: dotnet build consumer-example/ExampleConsumer.csproj -c Release -p:GamePath="$PWD/ci_valheim" -o out-example
+
+      - name: Versions agree
+        run: .github/scripts/check-version.sh
+
+      - name: Package (layout check only)
+        run: .github/scripts/package.sh "$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/ServerSyncPlus.csproj | head -1)" out

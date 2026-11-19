@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <GamePath Condition="'$(GamePath)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Valheim</GamePath>
+    <BepInExPath Condition="'$(BepInExPath)' == ''">$(GamePath)\BepInEx</BepInExPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <!-- The migration in one line: reference the shared DLL with Private=false (never copied, never ILRepacked). -->
+    <ProjectReference Include="..\src\ServerSyncPlus.csproj" Private="false" />
+    <!-- Remove ServerSync.dll from your ILRepack.targets InputAssemblies. -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx" HintPath="$(BepInExPath)\core\BepInEx.dll" Private="false" />
+    <Reference Include="UnityEngine" HintPath="$(GamePath)\valheim_Data\Managed\UnityEngine.dll" Private="false" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(GamePath)\valheim_Data\Managed\UnityEngine.CoreModule.dll" Private="false" />
+  </ItemGroup>
+</Project>

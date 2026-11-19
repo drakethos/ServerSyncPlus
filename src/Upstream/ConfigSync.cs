@@ -120,7 +120,7 @@ internal class ConfigurationManagerAttributes
 }
 
 [PublicAPI]
-public class ConfigSync
+public partial class ConfigSync // [plus] partial: ServerSyncPlus additions live in src/Plus
 {
 	public static bool ProcessingServerUpdate = false;
 
@@ -179,6 +179,7 @@ public class ConfigSync
 	public ConfigSync(string name)
 	{
 		Name = name;
+		PlusGuard.OnConfigSyncCreated(name, Assembly.GetCallingAssembly()); // [plus] refuse silent misuse, record consumer
 		configSyncs.Add(this);
 		_ = new VersionCheck(this);
 	}
@@ -634,12 +635,12 @@ public class ConfigSync
 
 		IEnumerable<bool> waitForQueue()
 		{
-			float timeout = Time.time + 30;
+			float timeout = Time.time + PlusSettings.SendTimeoutSeconds; // [plus] was hard-coded 30
 			while (peer.m_socket.GetSendQueueSize() > maximumSendQueueSize)
 			{
 				if (Time.time > timeout)
 				{
-					Debug.Log($"Disconnecting {peer.m_uid} after 30 seconds config sending timeout");
+					Debug.Log($"Disconnecting {peer.m_uid} after {PlusSettings.SendTimeoutSeconds} seconds config sending timeout");
 					peer.m_rpc.Invoke("Error", ZNet.ConnectionStatus.ErrorConnectFailed);
 					ZNet.instance.Disconnect(peer);
 					yield break;
@@ -1114,7 +1115,7 @@ public class ConfigSync
 
 [PublicAPI]
 [HarmonyPatch]
-public class VersionCheck
+public partial class VersionCheck // [plus] partial
 {
 	private static readonly HashSet<VersionCheck> versionChecks = new();
 	private static readonly Dictionary<string, string> notProcessedNames = new();
@@ -1164,7 +1165,7 @@ public class VersionCheck
 			return;
 		}
 
-		Harmony harmony = new("org.bepinex.helpers.ServerSync");
+		Harmony harmony = new(ServerSyncPlusPlugin.Guid); // [plus] own Harmony ID (upstream: "org.bepinex.helpers.ServerSync"); the already-patched guard above is type-based, not ID-based
 		foreach (Type type in typeof(ConfigSync).GetNestedTypes(BindingFlags.NonPublic).Concat(new[] { typeof(VersionCheck) }).Where(t => t.IsClass))
 		{
 			harmony.PatchAll(type);
@@ -1212,8 +1213,8 @@ public class VersionCheck
 		{
 			return !ModRequired;
 		}
-		bool myVersionOk = new System.Version(CurrentVersion) >= new System.Version(ReceivedMinimumRequiredVersion);
-		bool otherVersionOk = new System.Version(ReceivedCurrentVersion) >= new System.Version(MinimumRequiredVersion);
+		bool myVersionOk = PlusVersion.Parse(CurrentVersion) >= PlusVersion.Parse(ReceivedMinimumRequiredVersion);
+		bool otherVersionOk = PlusVersion.Parse(ReceivedCurrentVersion) >= PlusVersion.Parse(MinimumRequiredVersion);
 		return myVersionOk && otherVersionOk;
 	}
 
@@ -1224,7 +1225,7 @@ public class VersionCheck
 		{
 			return $"{DisplayName} is not installed on the server.";
 		}
-		bool myVersionOk = new System.Version(CurrentVersion) >= new System.Version(ReceivedMinimumRequiredVersion);
+		bool myVersionOk = PlusVersion.Parse(CurrentVersion) >= PlusVersion.Parse(ReceivedMinimumRequiredVersion);
 		return myVersionOk ? $"{DisplayName} may not be higher than version {ReceivedCurrentVersion}. You have version {CurrentVersion}." : $"{DisplayName} needs to be at least version {ReceivedMinimumRequiredVersion}. You have version {CurrentVersion}.";
 	}
 

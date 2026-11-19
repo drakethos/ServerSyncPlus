@@ -1,0 +1,100 @@
+name: Release
+
+# Push a tag vX.Y.Z (stable) or vX.Y.Z-beta.N (Hexium + GitHub prerelease) that matches the
+# version in src/ServerSyncPlus.csproj, src/Plus/Plugin.cs, package/manifest.json and CHANGELOG.md.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      zip: ${{ steps.pkg.outputs.zip }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve release version
+        id: ver
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then PRE=false
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then PRE=true
+          else echo "::error::Tag $TAG must be vX.Y.Z or vX.Y.Z-beta.N" >&2; exit 1; fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
+
+      - name: Versions agree with tag
+        run: .github/scripts/check-version.sh "${{ steps.ver.outputs.version }}"
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Unit tests
+        run: dotnet test tests -c Release
+
+      - name: Stage Valheim reference assemblies
+        run: .github/scripts/stage-game-refs.sh ci_valheim
+
+      - name: Build (Release)
+        run: dotnet build src/ServerSyncPlus.csproj -c Release -p:GamePath="$PWD/ci_valheim" -o out
+
+      - name: Package
+        id: pkg
+        run: |
+          ZIP=$(.github/scripts/package.sh "${{ steps.ver.outputs.version }}" out | tail -1)
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "ServerSyncPlus ${{ steps.ver.outputs.version }}"
+          prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
+          body: |
+            ## ServerSyncPlus v${{ steps.ver.outputs.version }}
+
+            A public fork of [ServerSync](https://github.com/blaxxun-boop/ServerSync) by blaxxun, shipped as a dependency.
+            Zip attached; CI publishes it to [Hexium](https://valheim.hexium.gg/mods/DrakeMods/ServerSyncPlus).
+
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/CHANGELOG.md).
+          files: ${{ steps.pkg.outputs.zip }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-zip
+          path: ${{ steps.pkg.outputs.zip }}
+          if-no-files-found: error
+
+  publish-hexium:
+    needs: build-and-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: package-zip
+          path: dist
+
+      - name: Publish to Hexium
+        env:
+          HEXIUM_TOKEN: ${{ secrets.HEXIUM_TOKEN }}
+          ZIP_NAME: ${{ needs.build-and-release.outputs.zip }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HEXIUM_TOKEN}" ]; then echo "::error::HEXIUM_TOKEN secret is not set" >&2; exit 1; fi
+          python3 .github/scripts/publish-hexium.py \
+            --file "dist/${ZIP_NAME}" \
+            --repository "https://valheim.hexium.gg" \
+            --namespace "DrakeMods" \
+            --communities "valheim" \
+            --categories "Config,Networking,Tools,Open Source,Valheim 1.0,Client & Server"

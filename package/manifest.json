@@ -1,0 +1,9 @@
+{
+  "name": "ServerSyncPlus",
+  "version_number": "0.9.0",
+  "website_url": "https://github.com/drakethos/ServerSyncPlus",
+  "description": "ServerSync by blaxxun as a shared dependency, plus forced sync, live config reload and file sync. Works alongside mods that embed ServerSync.",
+  "dependencies": [
+    "denikson-BepInExPack_Valheim-5.4.2360"
+  ]
+}
